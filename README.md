@@ -4,6 +4,8 @@ A Cribl App that discovers **Splunk Universal Forwarders (SUFs)** connecting to 
 groups and builds a persistent inventory of their versions, operating systems, architectures,
 and S2S protocol — without leaving debug logging on permanently.
 
+![UF Monitor Monitor tab showing a discovered forwarder and its raw debug event](./docs/screenshot-monitor.png)
+
 ## Why
 
 Splunk Universal Forwarder information isn't captured in a default configuration. The connection
