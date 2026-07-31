@@ -42,11 +42,3 @@ jobs:
           files: build/*.tgz
           fail_on_unmatched_files: true
           generate_release_notes: true
-
-      # Move the `latest` tag to this release's commit so Cribl's "Import from
-      # Git" flow can resolve the ref name "latest" to the newest release.
-      # `latest` doesn't match the v* trigger, so this push won't re-run the job.
-      - name: Update the moving 'latest' tag
-        run: |
-          git tag -f latest "$GITHUB_SHA"
-          git push -f origin latest
