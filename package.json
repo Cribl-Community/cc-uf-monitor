@@ -1,0 +1,38 @@
+{
+  "name": "cc-uf-monitor",
+  "private": true,
+  "version": "1.0.0",
+  "license": "Apache-2.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview",
+    "package": "npm run build && node scripts/package.mjs"
+  },
+  "dependencies": {
+    "@capra/core": "^1.10.0",
+    "@capra/dx-tokens-postcss-plugin": "^0.4.0",
+    "@capra/icons": "^1.8.0",
+    "@capra/theme": "^1.4.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-router-dom": "^7.18.2"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.4",
+    "oxlint": "^1.75.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0"
+  },
+  "displayName": "UF Monitor",
+  "author": "bwooden@cribl.io",
+  "cribl": {
+    "type": "app",
+    "createAppScriptVersion": "0.4.0"
+  }
+}
