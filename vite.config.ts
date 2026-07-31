@@ -56,12 +56,18 @@ const injectScriptFromQueryPlugin = () => {
       }
       appName = appName || 'unknown';
       const tags: Array<{ tag: string; attrs?: Record<string, string>; children?: string; injectTo: 'head-prepend' }> = [];
-      tags.push({
-        tag: 'script',
-        children: `window.CRIBL_APP_ID = '__dev__${appName}';`,
-        injectTo: 'head-prepend' as const,
-      });
       if (ctx.server) {
+        // DEV-SERVER ONLY. The `__dev__` prefix mirrors pkgutil's dev package
+        // name so the running dev app scopes to its dev install. In a real
+        // install the platform injects the correct CRIBL_APP_ID (e.g.
+        // `cc-uf-monitor`) itself — a production build must NOT emit this line,
+        // or it clobbers the real id and every API call resolves to a missing
+        // app scope ("App not found").
+        tags.push({
+          tag: 'script',
+          children: `window.CRIBL_APP_ID = '__dev__${appName}';`,
+          injectTo: 'head-prepend' as const,
+        });
         tags.push({
           tag: 'script',
           attrs: { type: 'module' },
