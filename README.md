@@ -46,7 +46,9 @@ The in-app **Help** tab documents the full workflow, the fields collected, and a
 
 1. Log in to Cribl and then click on **Apps->View All**
 2. Click **Add App->Import from Git**.
-3. Paste the repo url and "latest" for the release tag.
+3. Paste the repo url. For the release tag, use `latest` to always track the
+   newest release, or pin to a specific version tag (e.g. `v1.0.3`) if you want
+   a fixed version. The `latest` tag is moved to each new release automatically.
 4. Click **Import**.
 
 ## Development
