@@ -44,12 +44,16 @@ The in-app **Help** tab documents the full workflow, the fields collected, and a
 
 ## Installation
 
-1. Log in to Cribl and then click on **Apps->View All**
-2. Click **Add App->Import from Git**.
-3. Paste the repo url. For the release tag, use `latest` to always track the
-   newest release, or pin to a specific version tag (e.g. `v1.0.5`) if you want
-   a fixed version. The `latest` tag is moved to each new release automatically.
-4. Click **Import**.
+> **Install from the packaged release, not from Git.** This repository holds the
+> app's **source code**. Cribl's "Import from Git" only works when the repo
+> contains the *built bundle* — importing a source repo installs the app record
+> but leaves it unable to load ("App not found"). Use the release `.tgz` instead.
+
+1. Download the latest `cc-uf-monitor-<version>.tgz` from the
+   [Releases page](https://github.com/Cribl-Community/cc-uf-monitor/releases/latest).
+2. Log in to Cribl and click **Apps -> View All**.
+3. Click **Add App -> Upload package** and select the downloaded `.tgz`.
+4. Click **Install**.
 
 ## Development
 
@@ -63,40 +67,36 @@ npm run package  # build + create build/<name>-<version>.tgz
 
 ## Releasing
 
-There are **two** install paths, and they read the version from different places:
+Releases are cut by pushing a `v*` tag. The workflow at `.github/workflows/release.yml`
+runs `npm ci`, lints, packages the app at the tag's version (`v1.0.5` → `1.0.5` via
+`--version`), and publishes a GitHub Release with the built `cc-uf-monitor-<version>.tgz`
+attached — that `.tgz` is the install artifact (see [Installation](#installation)).
 
-- **GitHub Release `.tgz`** (`softprops/action-gh-release`): the workflow packages the app at the
-  tag's version (`v1.0.3` → `1.0.3` via `--version`).
-- **Cribl "Import from Git"**: reads the version straight from `package.json` in the source — it
-  does **not** use the git tag or the `.tgz`. For this path, **`package.json` is the source of truth.**
-
-So the `package.json` `version` **must be committed to match the release tag** before you tag.
-Do *not* discard the bump.
-
-Cut a release:
+Keep `package.json` `version` committed in step with the release tag so the packaged
+app reports the right version.
 
 ```bash
 # 1. Bump package.json (+ lockfile) to the new version and commit it to main.
-npm version 1.0.4 --no-git-tag-version
-git commit -am "Release v1.0.4"
+npm version 1.0.6 --no-git-tag-version
+git commit -am "Release v1.0.6"
 git push origin main
 
 # 2. Sanity-check the package build.
-npm ci && npm run lint && npm run package -- --version 1.0.4
+npm ci && npm run lint && npm run package -- --version 1.0.6
 ls build/*.tgz
 
-# 3. Tag the release commit and push the tag. The workflow builds the .tgz,
-#    creates the GitHub Release, and moves the `latest` tag to this commit.
-git tag v1.0.4
-git push origin v1.0.4
+# 3. Tag the release commit and push the tag. The workflow builds the .tgz
+#    and creates the GitHub Release.
+git tag v1.0.6
+git push origin v1.0.6
 ```
 
 `package.json` version and the `v*` tag must agree. To retag, delete the bad tag locally and on the
 remote first:
 
 ```bash
-git tag -d v1.0.4
-git push origin :refs/tags/v1.0.4
+git tag -d v1.0.6
+git push origin :refs/tags/v1.0.6
 ```
 
 ## License
