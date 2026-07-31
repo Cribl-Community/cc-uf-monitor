@@ -63,28 +63,40 @@ npm run package  # build + create build/<name>-<version>.tgz
 
 ## Releasing
 
-Releases are cut by pushing a `v*` tag. The workflow at `.github/workflows/release.yml` runs
-`npm ci`, lints, packages the app at the tag's version (the leading `v` is stripped, so
-`v1.0.0` → `1.0.0`), and creates a GitHub Release with the built `.tgz` attached.
+There are **two** install paths, and they read the version from different places:
+
+- **GitHub Release `.tgz`** (`softprops/action-gh-release`): the workflow packages the app at the
+  tag's version (`v1.0.3` → `1.0.3` via `--version`).
+- **Cribl "Import from Git"**: reads the version straight from `package.json` in the source — it
+  does **not** use the git tag or the `.tgz`. For this path, **`package.json` is the source of truth.**
+
+So the `package.json` `version` **must be committed to match the release tag** before you tag.
+Do *not* discard the bump.
+
+Cut a release:
 
 ```bash
-git tag v1.0.0
-git push origin v1.0.0
-```
+# 1. Bump package.json (+ lockfile) to the new version and commit it to main.
+npm version 1.0.4 --no-git-tag-version
+git commit -am "Release v1.0.4"
+git push origin main
 
-Sanity-check before tagging:
-
-```bash
-npm ci && npm run lint && npm run package -- --version 1.0.0
+# 2. Sanity-check the package build.
+npm ci && npm run lint && npm run package -- --version 1.0.4
 ls build/*.tgz
+
+# 3. Tag the release commit and push the tag. The workflow builds the .tgz,
+#    creates the GitHub Release, and moves the `latest` tag to this commit.
+git tag v1.0.4
+git push origin v1.0.4
 ```
 
-Discard any local `package.json` version bump from the dry run — only the tagged commit matters to
-CI. To retag, delete the bad tag locally and on the remote first:
+`package.json` version and the `v*` tag must agree. To retag, delete the bad tag locally and on the
+remote first:
 
 ```bash
-git tag -d v1.0.0
-git push origin :refs/tags/v1.0.0
+git tag -d v1.0.4
+git push origin :refs/tags/v1.0.4
 ```
 
 ## License
