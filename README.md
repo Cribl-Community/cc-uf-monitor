@@ -1,10 +1,12 @@
 # UF Monitor
 
+[![CI](https://github.com/Cribl-Community/cc-uf-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Cribl-Community/cc-uf-monitor/actions/workflows/ci.yml)
+
 A Cribl App that discovers **Splunk Universal Forwarders (SUFs)** connecting to your worker
 groups and builds a persistent inventory of their versions, operating systems, architectures,
 and S2S protocol — without leaving debug logging on permanently.
 
-![UF Monitor Monitor tab showing a discovered forwarder and its raw debug event](./docs/screenshot-monitor.png)
+![The UF Monitor app: the Monitor tab showing a discovered forwarder and its raw debug event](./docs/screenshot-monitor.png)
 
 ## Why
 
