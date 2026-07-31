@@ -34,7 +34,10 @@ type UfRecord = {
   // forwarder across all reconcile runs.
   seen_count: number;
   // Raw JSON of the most-recent log event for this forwarder — used to
-  // inspect the real field structure and drive correct parsing.
+  // inspect the real field structure and drive correct parsing. LIVE-ONLY:
+  // held in the in-memory `forwarders` state to power the Monitor raw-event
+  // view, but stripped before persisting (see stripRaw) so the KV inventory
+  // stays small at large fleet sizes (a full raw event is ~1 KB/forwarder).
   last_event_raw?: string;
   // When true, the forwarder is excluded from the Monitor table and CSV export.
   // Toggled per-row on the Inventory page; persisted in KV.
@@ -337,6 +340,18 @@ function reconcile(stored: UfState, fresh: UfRecord[]): { merged: UfState; newCo
   return { merged, newCount, updatedCount };
 }
 
+// Produce a KV-safe copy of the inventory: drop the heavy, live-only
+// `last_event_raw` from every record. Persisting one raw event (~1 KB) per
+// forwarder would bloat the single-key blob into multiple MB at thousands of
+// forwarders; the raw event is only needed transiently for the Monitor view.
+function stripRaw(state: UfState): UfState {
+  const out: UfState = {};
+  for (const [k, { last_event_raw: _drop, ...rest }] of Object.entries(state)) {
+    out[k] = rest;
+  }
+  return out;
+}
+
 function statusColor(s: UfRecord['status']): 'success' | 'info' | 'default' {
   if (s === 'new') return 'success';
   if (s === 'updated') return 'info';
@@ -553,7 +568,8 @@ function App() {
     try {
       const fresh = await fetchLogsForUFs(groupId, startedAtSec);
       const { merged, newCount: nc, updatedCount: uc } = reconcile(baselineRef.current, fresh);
-      await kvPut(KV_STATE_KEY, merged);
+      // Persist without the live-only raw events; keep `merged` (with raw) for the UI.
+      await kvPut(KV_STATE_KEY, stripRaw(merged));
       const rows = Object.values(merged).sort((a, b) => a.forwarder.localeCompare(b.forwarder));
       setForwarders(rows);
       setNewCount(nc);
