@@ -717,7 +717,7 @@ function App() {
       <div className="app">
         <div className="app-header">
           <div className="app-title-row">
-            <img src="/favicon.svg" alt="Cribl" className="app-logo" width={28} height={28} />
+            <img src="/favicon.svg" alt="UF Monitor" className="app-logo" width={28} height={28} />
             <div className="app-title-text">
               <Text as="h1" variant="heading-md">UF Monitor</Text>
               <Text variant="body-sm-normal" as="p">
