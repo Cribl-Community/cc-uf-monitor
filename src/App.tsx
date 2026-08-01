@@ -7,7 +7,27 @@ import './App.css';
 declare const CRIBL_API_URL: string;
 
 const DEBUG_DURATION_MS = 15 * 60 * 1000;
-const KV_STATE_KEY = 'uf_monitor/forwarders';
+
+// --- KV storage schema ---------------------------------------------------
+// v1.0: one monolithic JSON blob at `uf_monitor/forwarders`, each record
+//       carrying its full `last_event_raw` payload.
+// v1.1: same monolithic blob, but with `last_event_raw` stripped per record.
+// v2.0: one record PER forwarder at `uf_monitor/fwd/{id}`, plus a
+//       `uf_monitor/schema_version` marker. Per-forwarder keys mean a write
+//       only touches the one forwarder it changes, so concurrent monitoring
+//       sessions can no longer clobber each other's records (issue #6).
+const CURRENT_SCHEMA_VERSION = '2.0';
+// Legacy monolithic key (v1.0/v1.1) — read once during migration, then left
+// in place as a rollback backstop.
+const KV_LEGACY_STATE_KEY = 'uf_monitor/forwarders';
+const KV_SCHEMA_VERSION_KEY = 'uf_monitor/schema_version';
+// Prefix under which each forwarder gets its own key: `uf_monitor/fwd/{id}`.
+const KV_FWD_PREFIX = 'uf_monitor/fwd/';
+
+// A forwarder id can contain characters that aren't safe in a KV key path
+// (dots, slashes, spaces). encodeURIComponent keeps the mapping reversible.
+const fwdKey = (forwarder: string) => `${KV_FWD_PREFIX}${encodeURIComponent(forwarder)}`;
+
 // How often to re-read logs and refresh the table while a session is active.
 const POLL_INTERVAL_MS = 5000;
 
@@ -36,8 +56,8 @@ type UfRecord = {
   // Raw JSON of the most-recent log event for this forwarder — used to
   // inspect the real field structure and drive correct parsing. LIVE-ONLY:
   // held in the in-memory `forwarders` state to power the Monitor raw-event
-  // view, but stripped before persisting (see stripRaw) so the KV inventory
-  // stays small at large fleet sizes (a full raw event is ~1 KB/forwarder).
+  // view, but stripped before persisting (see stripRawRecord) so the KV
+  // inventory stays small at large fleet sizes (a raw event is ~1 KB/forwarder).
   last_event_raw?: string;
   // When true, the forwarder is excluded from the Monitor table and CSV export.
   // Toggled per-row on the Inventory page; persisted in KV.
@@ -142,6 +162,35 @@ async function kvGetRaw(key: string): Promise<{ status: number; ok: boolean; bod
   } catch (e) {
     return { status: -1, ok: false, body: String(e) };
   }
+}
+
+async function kvDelete(key: string): Promise<void> {
+  const res = await fetch(`${CRIBL_API_URL}/kvstore/${key}`, { method: 'DELETE' });
+  // 404 is fine — the key is already gone, which is the desired end state.
+  if (!res.ok && res.status !== 404) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`KV delete ${key} → ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);
+  }
+}
+
+// List all KV keys under a prefix via POST /kvstore/keys (see AGENTS.md). The
+// proxy returns the matching key names; response shape varies, so accept either
+// a bare array or a wrapped `{items|keys}` array.
+async function kvListKeys(prefix: string): Promise<string[]> {
+  const res = await fetch(`${CRIBL_API_URL}/kvstore/keys`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prefix }),
+  });
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(`KV list keys "${prefix}" → ${res.status} ${res.statusText}${detail ? ` — ${detail}` : ''}`);
+  }
+  const data = await readJson(res);
+  const arr = Array.isArray(data)
+    ? data
+    : ((data as { items?: unknown; keys?: unknown })?.items ?? (data as { keys?: unknown })?.keys);
+  return Array.isArray(arr) ? arr.filter((k): k is string => typeof k === 'string') : [];
 }
 
 async function fetchGroups(): Promise<string[]> {
@@ -340,16 +389,88 @@ function reconcile(stored: UfState, fresh: UfRecord[]): { merged: UfState; newCo
   return { merged, newCount, updatedCount };
 }
 
-// Produce a KV-safe copy of the inventory: drop the heavy, live-only
-// `last_event_raw` from every record. Persisting one raw event (~1 KB) per
-// forwarder would bloat the single-key blob into multiple MB at thousands of
-// forwarders; the raw event is only needed transiently for the Monitor view.
-function stripRaw(state: UfState): UfState {
-  const out: UfState = {};
-  for (const [k, { last_event_raw: _drop, ...rest }] of Object.entries(state)) {
-    out[k] = rest;
+// Produce a KV-safe copy of a record: drop the heavy, live-only
+// `last_event_raw`. Persisting one raw event (~1 KB) per forwarder would bloat
+// storage needlessly; the raw event is only needed transiently for the Monitor
+// view, so it never leaves in-memory state. Also drop the live-only `status`.
+function stripRawRecord({ last_event_raw: _r, status: _s, ...rest }: UfRecord): UfRecord {
+  return rest;
+}
+
+// --- v2.0 inventory access layer -----------------------------------------
+// The inventory is stored as one KV key per forwarder (`uf_monitor/fwd/{id}`).
+// Every mutation touches only the affected forwarder's key, so overlapping
+// monitoring sessions can't clobber each other's records (issue #6).
+
+// Persist a single forwarder (raw/status stripped). Idempotent per key.
+async function saveForwarder(rec: UfRecord): Promise<void> {
+  await kvPut(fwdKey(rec.forwarder), stripRawRecord(rec));
+}
+
+// Remove a single forwarder's key.
+async function removeForwarder(forwarder: string): Promise<void> {
+  await kvDelete(fwdKey(forwarder));
+}
+
+// Read the whole inventory: list every per-forwarder key, fetch them, and
+// assemble a UfState keyed by forwarder. Runs the one-time migration first.
+async function loadInventory(): Promise<UfState> {
+  await ensureSchemaMigrated();
+  const keys = await kvListKeys(KV_FWD_PREFIX);
+  const state: UfState = {};
+  await Promise.all(keys.map(async (key) => {
+    const raw = await kvGetRaw(key);
+    if (!raw.ok || !raw.body) return;
+    try {
+      const rec = JSON.parse(raw.body) as UfRecord;
+      if (rec && typeof rec.forwarder === 'string') state[rec.forwarder] = rec;
+    } catch {
+      // Skip an unparseable record rather than fail the whole load.
+    }
+  }));
+  return state;
+}
+
+// One-time, idempotent migration to schema v2.0. Memoized so concurrent
+// callers (e.g. Monitor hydrate + Inventory load racing on mount) share a
+// single run. If already at v2.0, does nothing. Otherwise reads the legacy
+// monolithic blob (v1.0 with raw, or v1.1 without), fans each record out to its
+// own `uf_monitor/fwd/{id}` key, and stamps the schema marker. The legacy key
+// is intentionally left in place as a rollback backstop.
+let migrationPromise: Promise<void> | null = null;
+async function ensureSchemaMigrated(): Promise<void> {
+  // On failure, clear the memo so a later load can retry rather than being
+  // stuck with a poisoned rejected promise for the page's lifetime.
+  if (!migrationPromise) {
+    migrationPromise = runMigration().catch((e) => {
+      migrationPromise = null;
+      throw e;
+    });
   }
-  return out;
+  return migrationPromise;
+}
+
+async function runMigration(): Promise<void> {
+  const marker = await kvGet(KV_SCHEMA_VERSION_KEY) as { version?: string } | null;
+  if (marker?.version === CURRENT_SCHEMA_VERSION) return;
+
+  // Read the legacy monolithic blob. Absent (fresh install) → nothing to move.
+  const legacyRaw = await kvGetRaw(KV_LEGACY_STATE_KEY);
+  if (legacyRaw.ok && legacyRaw.body) {
+    let legacy: UfState = {};
+    try { legacy = (JSON.parse(legacyRaw.body) as UfState) ?? {}; } catch { legacy = {}; }
+    // Fan out each record to its own key (stripRawRecord handles a v1.0 blob
+    // that still carries last_event_raw, so the result is uniform v1.1 shape).
+    await Promise.all(
+      Object.values(legacy)
+        .filter((rec) => rec && typeof rec.forwarder === 'string')
+        .map((rec) => saveForwarder(rec)),
+    );
+  }
+
+  // Stamp the schema marker last, so an interrupted migration re-runs (the
+  // per-key writes above are idempotent, so re-running is safe).
+  await kvPut(KV_SCHEMA_VERSION_KEY, { version: CURRENT_SCHEMA_VERSION });
 }
 
 function statusColor(s: UfRecord['status']): 'success' | 'info' | 'default' {
@@ -450,14 +571,11 @@ function App() {
   useEffect(() => {
     void (async () => {
       try {
-        const raw = await kvGetRaw(KV_STATE_KEY);
-        if (raw.ok && raw.body) {
-          const stored = JSON.parse(raw.body) as UfState;
-          const rows = Object.values(stored ?? {})
-            .map(r => ({ ...r, status: undefined }))
-            .sort((a, b) => a.forwarder.localeCompare(b.forwarder));
-          setForwarders(rows);
-        }
+        const stored = await loadInventory();
+        const rows = Object.values(stored)
+          .map(r => ({ ...r, status: undefined }))
+          .sort((a, b) => a.forwarder.localeCompare(b.forwarder));
+        setForwarders(rows);
       } catch {
         // Non-fatal: an empty/unparseable inventory just leaves Monitor empty.
       } finally {
@@ -469,13 +587,7 @@ function App() {
   const loadSaved = useCallback(async () => {
     setSavedLoading(true);
     try {
-      // Read the raw response and parse the JSON text ourselves (the value is
-      // stored as text/plain — see kvPut).
-      const raw = await kvGetRaw(KV_STATE_KEY);
-      let stored: UfState = {};
-      if (raw.ok && raw.body) {
-        try { stored = (JSON.parse(raw.body) as UfState) ?? {}; } catch { stored = {}; }
-      }
+      const stored = await loadInventory();
       setSaved(Object.values(stored).sort((a, b) => a.forwarder.localeCompare(b.forwarder)));
     } catch (e) {
       Toast.error(`Failed to load saved forwarders: ${String(e)}`);
@@ -491,11 +603,10 @@ function App() {
 
   const deleteSaved = useCallback(async (forwarder: string) => {
     try {
-      const storedRaw = await kvGet(KV_STATE_KEY);
-      const stored = (storedRaw as UfState) ?? {};
-      delete stored[forwarder];
-      await kvPut(KV_STATE_KEY, stored);
-      setSaved(Object.values(stored).sort((a, b) => a.forwarder.localeCompare(b.forwarder)));
+      // Delete just this forwarder's key — no read-modify-write of a shared
+      // blob, so a concurrent poll can't overwrite the deletion.
+      await removeForwarder(forwarder);
+      setSaved(prev => prev.filter(uf => uf.forwarder !== forwarder));
       // Also drop it from the frozen baseline + live rows, so an in-flight
       // session's next poll doesn't resurrect it with its old accumulated count
       // (reconcile treats a forwarder absent from the baseline as brand new).
@@ -512,12 +623,12 @@ function App() {
   // (reconcile preserves the stored `hidden` flag).
   const toggleHidden = useCallback(async (forwarder: string, hidden: boolean) => {
     try {
-      const storedRaw = await kvGet(KV_STATE_KEY);
-      const stored = (storedRaw as UfState) ?? {};
-      if (!stored[forwarder]) return;
-      stored[forwarder] = { ...stored[forwarder], hidden };
-      await kvPut(KV_STATE_KEY, stored);
-      setSaved(Object.values(stored).sort((a, b) => a.forwarder.localeCompare(b.forwarder)));
+      // Read just this forwarder's current record, flip the flag, write it back.
+      const current = await kvGet(fwdKey(forwarder)) as UfRecord | null;
+      if (!current) return;
+      const updated = { ...current, hidden };
+      await saveForwarder(updated);
+      setSaved(prev => prev.map(uf => uf.forwarder === forwarder ? { ...uf, hidden } : uf));
       // Keep the running session consistent with the new flag.
       if (baselineRef.current[forwarder]) baselineRef.current[forwarder].hidden = hidden;
       setForwarders(prev => prev.map(uf => uf.forwarder === forwarder ? { ...uf, hidden } : uf));
@@ -568,8 +679,10 @@ function App() {
     try {
       const fresh = await fetchLogsForUFs(groupId, startedAtSec);
       const { merged, newCount: nc, updatedCount: uc } = reconcile(baselineRef.current, fresh);
-      // Persist without the live-only raw events; keep `merged` (with raw) for the UI.
-      await kvPut(KV_STATE_KEY, stripRaw(merged));
+      // Persist only the forwarders that appeared in THIS poll, each to its own
+      // key. Untouched forwarders (baseline-only) aren't rewritten, so another
+      // session monitoring a different group can't have its records clobbered.
+      await Promise.all(fresh.map(f => saveForwarder(merged[f.forwarder])));
       const rows = Object.values(merged).sort((a, b) => a.forwarder.localeCompare(b.forwarder));
       setForwarders(rows);
       setNewCount(nc);
@@ -609,8 +722,7 @@ function App() {
     setAdopted(false);
 
     // Freeze the baseline once, so every poll reconciles against the same start state.
-    const storedRaw = await kvGet(KV_STATE_KEY);
-    baselineRef.current = (storedRaw as UfState) ?? {};
+    baselineRef.current = await loadInventory();
 
     // Read logs from the start of the debug window (or now, whichever is later),
     // capped at the max search window we support.
@@ -1210,7 +1322,8 @@ function App() {
             </Collapse>
             <Collapse title="Where is the inventory stored?">
               <Text variant="body-sm-normal" as="p">
-                In the app-scoped Cribl KV store under <code>{KV_STATE_KEY}</code>. It is durable across
+                In the app-scoped Cribl KV store, one record per forwarder under
+                <code> {KV_FWD_PREFIX}&#123;id&#125;</code> (schema {CURRENT_SCHEMA_VERSION}). It is durable across
                 reloads and shared globally across every worker group you monitor. Manage it on the
                 <strong> Inventory</strong> tab — hide rows from the Monitor view and CSV export,
                 or delete them entirely.
