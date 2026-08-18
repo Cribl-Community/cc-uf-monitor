@@ -42,3 +42,21 @@ jobs:
           files: build/*.tgz
           fail_on_unmatched_files: true
           generate_release_notes: true
+
+      - name: Upload pack to Packs Dispensary (staging)
+        if: contains(github.ref_name, '-staging')
+        run: |
+          TGZ_FILE=$(find build -name '*.tgz' | head -1)
+          if [ -z "$TGZ_FILE" ]; then echo "ERROR: No .tgz found in build/"; exit 1; fi
+          curl --fail --location '${{ vars.DISPENSARY_ENDPOINT_STAGING }}/${{ github.event.repository.name }}' \
+            --header 'Authorization: Bearer ${{ secrets.PACKS_API_TOKEN_STAGING }}' \
+            --form "file=@${TGZ_FILE}"
+
+      - name: Upload pack to Packs Dispensary (prod)
+        if: ${{ !contains(github.ref_name, '-staging') }}
+        run: |
+          TGZ_FILE=$(find build -name '*.tgz' | head -1)
+          if [ -z "$TGZ_FILE" ]; then echo "ERROR: No .tgz found in build/"; exit 1; fi
+          curl --fail --location '${{ vars.DISPENSARY_ENDPOINT }}/${{ github.event.repository.name }}' \
+            --header 'Authorization: Bearer ${{ secrets.PACKS_API_TOKEN }}' \
+            --form "file=@${TGZ_FILE}"

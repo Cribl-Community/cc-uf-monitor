@@ -42,7 +42,7 @@ async function runNpmBuild(cwd) {
 let packageInProgress = false;
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CRIBL_CREATE_APP_SCRIPT_VERSION = '0.4.0';
+const CRIBL_CREATE_APP_SCRIPT_VERSION = '0.5.0';
 
 async function pathExists(filePath) {
   try {
@@ -50,6 +50,40 @@ async function pathExists(filePath) {
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Materialize the Cribl pack layout at the repo root for Git-based installs.
+ * Copies dist/ → static/, config files → default/, and writes a minimal package.json.
+ * Release CI commits this onto the tag so "Import from Git" serves the built app.
+ */
+export async function prepareGitPackLayout(_versionOverride = undefined) {
+  const rootDir = join(__dirname, '..');
+  const distDir = join(rootDir, 'dist');
+  const proxiesPath = join(rootDir, 'config', 'proxies.yml');
+  const policiesPath = join(rootDir, 'config', 'policies.yml');
+  const staticDir = join(rootDir, 'static');
+  const defaultDir = join(rootDir, 'default');
+
+  if (!(await pathExists(distDir))) {
+    throw new Error('dist folder not found. Run npm run build first.');
+  }
+
+  if (await pathExists(staticDir)) {
+    await rm(staticDir, { recursive: true, force: true });
+  }
+  await mkdir(staticDir, { recursive: true });
+  await mkdir(defaultDir, { recursive: true });
+
+  await cp(distDir, staticDir, { recursive: true });
+
+  if (await pathExists(proxiesPath)) {
+    await cp(proxiesPath, join(defaultDir, 'proxies.yml'));
+  }
+
+  if (await pathExists(policiesPath)) {
+    await cp(policiesPath, join(defaultDir, 'policies.yml'));
   }
 }
 
@@ -63,6 +97,7 @@ export async function createAppPack(dev = false) {
   const distDir = join(rootDir, 'dist');
   const proxiesPath = join(rootDir, 'config', 'proxies.yml');
   const policiesPath = join(rootDir, 'config', 'policies.yml');
+  const readmePath = join(rootDir, 'README.md');
 
   if (await pathExists(buildDir)) {
     await rm(buildDir, { recursive: true });
@@ -87,18 +122,26 @@ export async function createAppPack(dev = false) {
     await cp(policiesPath, join(buildDir, 'default', 'policies.yml'));
   }
 
+  if (await pathExists(readmePath)) {
+    await cp(readmePath, join(buildDir, 'README.md'));
+  }
+
   const rootPackageJson = JSON.parse(
     await readFile(join(rootDir, 'package.json'), 'utf8')
   );
 
   const packageInfo = Object.fromEntries(
-    ['name', 'version', 'displayName', 'description', 'author', 'license', 'cribl']
+    ['name', 'version', 'displayName', 'description', 'author', 'license', 'cribl', 'tags']
       .filter((k) => rootPackageJson?.[k])
       .map((k) => [k, rootPackageJson[k]])
   );
   packageInfo.cribl = {
     ...(packageInfo.cribl ?? {}),
     createAppScriptVersion: CRIBL_CREATE_APP_SCRIPT_VERSION,
+  };
+  packageInfo.tags = {
+    ...(packageInfo.tags ?? {}),
+    product: packageInfo.tags?.product ?? [],
   };
 
   if (dev && packageInfo.name) {
