@@ -32,6 +32,11 @@
   },
   "displayName": "UF Monitor",
   "author": "bwooden@cribl.io",
+  "tags": {
+    "product": [
+        "edge"
+    ]
+  },
   "cribl": {
     "type": "app",
     "createAppScriptVersion": "0.4.0"
