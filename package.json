@@ -31,10 +31,11 @@
     "vite": "^8.2.0"
   },
   "displayName": "UF Monitor",
-  "author": "bwooden@cribl.io",
+  "description": "Report on Splunk Universal Forwarder attributes connected to Cribl Stream",
+  "author": "bwoodeux",
   "tags": {
     "product": [
-      "edge"
+      "stream"
     ]
   },
   "cribl": {
