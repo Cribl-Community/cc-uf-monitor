@@ -44,16 +44,26 @@ The in-app **Help** tab documents the full workflow, the fields collected, and a
 
 ## Installation
 
-> **Install from the packaged release, not from Git.** This repository holds the
-> app's **source code**. Cribl's "Import from Git" only works when the repo
-> contains the *built bundle* — importing a source repo installs the app record
-> but leaves it unable to load ("App not found"). Use the release `.tgz` instead.
+There are two supported ways to install a released version.
+
+### Upload the packaged release (simplest)
 
 1. Download the latest `cc-uf-monitor-<version>.tgz` from the
    [Releases page](https://github.com/Cribl-Community/cc-uf-monitor/releases/latest).
 2. Log in to Cribl and click **Apps -> View All**.
 3. Click **Add App -> Upload package** and select the downloaded `.tgz`.
 4. Click **Install**.
+
+### Import from Git
+
+> **Import from a release tag, not `main`.** Cribl's "Import from Git" requires
+> the repo to contain the *built bundle*. The release workflow commits the built
+> `static/` and `default/` layout onto each release tag (and onto the moving
+> `latest` tag), so those refs are installable — but `main` holds source only and
+> will install an app record that can't load ("App not found").
+
+Point "Import from Git" at this repo and select the `latest` tag or a specific
+`vX.Y.Z` release tag as the ref.
 
 ## Development
 
@@ -68,35 +78,52 @@ npm run package  # build + create build/<name>-<version>.tgz
 ## Releasing
 
 Releases are cut by pushing a `v*` tag. The workflow at `.github/workflows/release.yml`
-runs `npm ci`, lints, packages the app at the tag's version (`v1.0.5` → `1.0.5` via
-`--version`), and publishes a GitHub Release with the built `cc-uf-monitor-<version>.tgz`
-attached — that `.tgz` is the install artifact (see [Installation](#installation)).
+derives the version from the tag (`v1.1.2` → `1.1.2`, and a `-staging` suffix is
+stripped), then on that tag:
+
+1. Runs `npm ci`, lints, and packages the app (`build/cc-uf-monitor-<version>.tgz`).
+2. **Publishes the pack layout for Git install** — materializes `static/` + `default/`,
+   commits them onto the tag, and force-updates the `latest` tag to point at the release.
+3. Creates a **GitHub Release** with the `.tgz` attached.
+4. **Uploads the pack to the Cribl Packs Dispensary** — the staging dispensary for
+   `-staging` tags, the production dispensary otherwise.
+
+The dispensary credentials/endpoints come from org-level Actions secrets and variables
+(`PACKS_API_TOKEN{,_STAGING}`, `DISPENSARY_ENDPOINT{,_STAGING}`) and are inherited
+automatically.
 
 Keep `package.json` `version` committed in step with the release tag so the packaged
 app reports the right version.
 
+### Test on staging first
+
+Append `-staging` to the tag to publish to the **staging** dispensary only, verify, then
+push the clean tag for production:
+
 ```bash
-# 1. Bump package.json (+ lockfile) to the new version and commit it to main.
-npm version 1.0.6 --no-git-tag-version
-git commit -am "Release v1.0.6"
-git push origin main
+# 1. Bump package.json (+ lockfile) to the new version and merge to main.
+npm version 1.1.3 --no-git-tag-version
+# ...commit + PR...
 
-# 2. Sanity-check the package build.
-npm ci && npm run lint && npm run package -- --version 1.0.6
-ls build/*.tgz
+# 2. Staging release — uploads to the staging dispensary only.
+git tag v1.1.3-staging
+git push origin v1.1.3-staging
 
-# 3. Tag the release commit and push the tag. The workflow builds the .tgz
-#    and creates the GitHub Release.
-git tag v1.0.6
-git push origin v1.0.6
+# 3. Once verified, production release.
+git tag v1.1.3
+git push origin v1.1.3
 ```
 
-`package.json` version and the `v*` tag must agree. To retag, delete the bad tag locally and on the
-remote first:
+> **Note:** the `latest` tag is force-moved on *every* release, staging included, so a
+> `-staging` run temporarily points `latest` at the staging build until the next
+> production tag moves it back.
+
+`package.json` version and the `v*` tag should agree. To retag, delete the bad tag locally
+and on the remote first:
 
 ```bash
-git tag -d v1.0.6
-git push origin :refs/tags/v1.0.6
+git tag -d v1.1.3
+git push origin :refs/tags/v1.1.3
 ```
 
 ## License
