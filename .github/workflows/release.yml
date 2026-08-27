@@ -2,6 +2,7 @@ name: Release
 
 # Triggers on any pushed tag matching v* (e.g. v1.0.0). The leading "v" is
 # stripped so the published artifact is versioned without it (v1.0.0 -> 1.0.0).
+# Tags ending in -staging publish to the staging dispensary only.
 on:
   push:
     tags:
@@ -10,17 +11,23 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
 
       - name: Install dependencies
@@ -31,10 +38,24 @@ jobs:
 
       - name: Derive version from tag
         id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(echo ${GITHUB_REF_NAME#v} | sed s/-staging$//)" >> "$GITHUB_OUTPUT"
 
       - name: Package app
         run: npm run package -- --version "${{ steps.version.outputs.version }}"
+
+      - name: Publish pack layout for Git install
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          node scripts/prepare-git-pack.mjs --version "${{ steps.version.outputs.version }}"
+          git add -f static default package.json
+          if ! git diff --staged --quiet; then
+            git commit -m "chore(release): add Cribl pack layout for Git install"
+            git tag -f "${GITHUB_REF_NAME}"
+            git push origin "${GITHUB_REF_NAME}" --force
+          fi
+          git tag -f latest "${GITHUB_REF_NAME}"
+          git push origin latest --force
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
