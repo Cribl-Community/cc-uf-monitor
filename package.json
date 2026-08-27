@@ -32,7 +32,7 @@
   },
   "displayName": "UF Monitor",
   "description": "Report on Splunk Universal Forwarder attributes connected to Cribl Stream",
-  "author": "bwoodeux",
+  "author": "Brian Wooden",
   "tags": {
     "product": [
       "stream"
