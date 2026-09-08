@@ -6,7 +6,7 @@ A Cribl App that discovers **Splunk Universal Forwarders (SUFs)** connecting to 
 groups and builds a persistent inventory of their versions, operating systems, architectures,
 and S2S protocol — without leaving debug logging on permanently.
 
-![The UF Monitor app: the Monitor tab showing a discovered forwarder and its raw debug event](./docs/screenshot-monitor.png)
+![The UF Monitor app: the Monitor tab showing a discovered forwarder and its raw debug event](https://raw.githubusercontent.com/Cribl-Community/cc-uf-monitor/main/docs/screenshot-monitor.png)
 
 ## Why
 
@@ -107,16 +107,16 @@ push the clean tag for production:
 
 ```bash
 # 1. Bump package.json (+ lockfile) to the new version and merge to main.
-npm version 1.1.3 --no-git-tag-version
+npm version 1.1.4 --no-git-tag-version
 # ...commit + PR...
 
 # 2. Staging release — uploads to the staging dispensary only.
-git tag v1.1.3-staging
-git push origin v1.1.3-staging
+git tag v1.1.4-staging
+git push origin v1.1.4-staging
 
 # 3. Once verified, production release.
-git tag v1.1.3
-git push origin v1.1.3
+git tag v1.1.4
+git push origin v1.1.4
 ```
 
 > **Note:** the `latest` tag is force-moved on *every* release, staging included, so a
@@ -127,8 +127,8 @@ git push origin v1.1.3
 and on the remote first:
 
 ```bash
-git tag -d v1.1.3
-git push origin :refs/tags/v1.1.3
+git tag -d v1.1.4
+git push origin :refs/tags/v1.1.4
 ```
 
 ## License
