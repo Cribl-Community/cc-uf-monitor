@@ -1,0 +1,17 @@
+policies:
+  - object: '/master/groups'
+    actions: ['GET']
+  - object: '/m/:gid/system/logger'
+    actions: ['GET', 'PATCH']
+  - object: '/m/:gid/system/logger/:id'
+    actions: ['GET', 'PATCH']
+  - object: '/system/logs/search'
+    actions: ['GET']
+  - object: '/system/logs/:id'
+    actions: ['GET']
+  - object: '/m/:gid/version/status'
+    actions: ['GET']
+  - object: '/m/:gid/version/commit'
+    actions: ['POST']
+  - object: '/products/:product/groups/:id/deploy'
+    actions: ['PATCH']
