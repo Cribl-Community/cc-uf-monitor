@@ -95,6 +95,11 @@ automatically.
 Keep `package.json` `version` committed in step with the release tag so the packaged
 app reports the right version.
 
+> **Marketplace requires an ever-increasing version.** Each dispensary submission must
+> use a version strictly greater than the previously submitted one — reusing or
+> re-tagging an already-submitted version can be rejected. Always bump before cutting a
+> new release, even to re-publish a fix.
+
 ### Test on staging first
 
 Append `-staging` to the tag to publish to the **staging** dispensary only, verify, then
