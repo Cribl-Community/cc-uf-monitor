@@ -58,7 +58,7 @@ jobs:
           git push origin latest --force
 
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: build/*.tgz
           fail_on_unmatched_files: true
