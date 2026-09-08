@@ -1,7 +1,7 @@
 {
   "name": "cc-uf-monitor",
   "private": true,
-  "version": "1.1.2",
+  "version": "1.1.3",
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
@@ -32,7 +32,7 @@
   },
   "displayName": "UF Monitor",
   "description": "Report of Splunk Universal Forwarders sending to Cribl Stream (and their attributes)",
-  "author": "bwoodeux",
+  "author": "Brian Wooden - bwooden@cribl.io",
   "tags": {
     "product": [
       "stream"
